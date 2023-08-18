@@ -3,9 +3,9 @@ import logging
 import os
 import sys
 from datetime import date
+from typing import Any
 from uuid import UUID
 
-import appeal
 from tabulate import tabulate
 
 from ynab_sync.constants import (
@@ -16,10 +16,6 @@ from ynab_sync.constants import (
     ENV_YNAB_BUDGET_ID,
     ENV_YNAB_TOKEN,
 )
-
-app = appeal.Appeal()
-
-import logging
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,21 +35,20 @@ from .logic import (
 )
 
 
-@app.command()
 def upload(
     *,
-    date_from: str = "",
-    date_to: str = "",
-    ynab_token: str = os.getenv(ENV_YNAB_TOKEN, ""),
-    ynab_budget_id: str = os.getenv(ENV_YNAB_BUDGET_ID, ""),
-    ynab_account_id: str = os.getenv(ENV_YNAB_ACCOUNT_ID, ""),
-    gocardless_secret_id: str = os.getenv(ENV_GOCARDLESS_SECRET_ID, ""),
-    gocardless_secret_key: str = os.getenv(ENV_GOCARDLESS_SECRET_KEY, ""),
-    gocardless_account_id: str = os.getenv(ENV_GOCARDLESS_ACCOUNT_ID, ""),
+    ynab_token: str,
+    ynab_budget_id: UUID,
+    ynab_account_id: UUID,
+    gocardless_secret_id: str,
+    gocardless_secret_key: str,
+    gocardless_account_id: UUID,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ):
     log = logging.getLogger("cli.upload")
-    # TODO: Get this from appeal?
-    params = {
+
+    params: dict[str, Any] = {
         "ynab_budget_id": ynab_budget_id,
         "ynab_account_id": ynab_account_id,
         "gocardless_account_id": gocardless_account_id,
@@ -65,46 +60,24 @@ def upload(
 
     log.info("Started with params: %s ", params)
 
-    error = False
-    for name, non_optional in {
-        "ynab_token": ynab_token,
-        "ynab_budget_id": ynab_budget_id,
-        "ynab_account_id": ynab_account_id,
-        "gocardless_secret_id": gocardless_secret_id,
-        "gocardless_secret_key": gocardless_secret_key,
-        "gocardless_account_id": gocardless_account_id,
-    }.items():
-        if not non_optional:
-            print(f"`{name}` parameter should be specified.")
-            error = True
-
-    if error:
-        return
-
     gocardless_bank_account_data = get_gocardless_transactions(
         secret_key=gocardless_secret_key,
         secret_id=gocardless_secret_id,
-        account_id=UUID(gocardless_account_id),
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
+        account_id=gocardless_account_id,
+        date_from=date_from,
+        date_to=date_to,
     )
 
     ynab_transactions = prepare_ynab_transactions(
         gocardless_bank_data=gocardless_bank_account_data,
-        ynab_account_id=UUID(ynab_account_id),
+        ynab_account_id=ynab_account_id,
     )
 
     upload_to_ynab(
-        transactions=ynab_transactions, token=ynab_token, budget_id=UUID(ynab_budget_id)
+        transactions=ynab_transactions, token=ynab_token, budget_id=ynab_budget_id
     )
 
 
-@app.command()
-def ynab():
-    ...
-
-
-@app.command("ynab").command()
 def budgets(
     *,
     ynab_token: str = os.getenv(ENV_YNAB_TOKEN),
@@ -119,7 +92,6 @@ def budgets(
     print(table)
 
 
-@app.command("ynab").command()
 def accounts(
     *,
     ynab_token: str = os.getenv(ENV_YNAB_TOKEN),
@@ -145,12 +117,6 @@ def accounts(
     print(table)
 
 
-@app.command()
-def gocardless():
-    ...
-
-
-@app.command("gocardless").command()
 def banks(
     country: str,
     *,
@@ -167,7 +133,6 @@ def banks(
     print(table)
 
 
-@app.command("gocardless").command()
 def generate_bank_auth_link(
     institution_id: str,
     *,
@@ -191,7 +156,6 @@ def generate_bank_auth_link(
     )
 
 
-@app.command("gocardless").command()
 def list_requisition_accounts(
     requisition_id: str,
     *,
