@@ -8,14 +8,7 @@ from uuid import UUID
 import appeal
 from tabulate import tabulate
 
-from ynab_sync.constants import (
-    ENV_GOCARDLESS_ACCOUNT_ID,
-    ENV_GOCARDLESS_SECRET_ID,
-    ENV_GOCARDLESS_SECRET_KEY,
-    ENV_YNAB_ACCOUNT_ID,
-    ENV_YNAB_BUDGET_ID,
-    ENV_YNAB_TOKEN,
-)
+from ynab_sync.config import GocardlessCredentials, YnabCredentials, YnabSyncConfig
 
 app = appeal.Appeal()
 
@@ -44,12 +37,12 @@ def upload(
     *,
     date_from: str = "",
     date_to: str = "",
-    ynab_token: str = os.getenv(ENV_YNAB_TOKEN, ""),
-    ynab_budget_id: str = os.getenv(ENV_YNAB_BUDGET_ID, ""),
-    ynab_account_id: str = os.getenv(ENV_YNAB_ACCOUNT_ID, ""),
-    gocardless_secret_id: str = os.getenv(ENV_GOCARDLESS_SECRET_ID, ""),
-    gocardless_secret_key: str = os.getenv(ENV_GOCARDLESS_SECRET_KEY, ""),
-    gocardless_account_id: str = os.getenv(ENV_GOCARDLESS_ACCOUNT_ID, ""),
+    ynab_token: str = "",
+    ynab_budget_id: str = "",
+    ynab_account_id: str = "",
+    gocardless_secret_id: str = "",
+    gocardless_secret_key: str = "",
+    gocardless_account_id: str = "",
 ):
     log = logging.getLogger("cli.upload")
     # TODO: Get this from appeal?
@@ -65,37 +58,37 @@ def upload(
 
     log.info("Started with params: %s ", params)
 
-    error = False
-    for name, non_optional in {
+    config_mapping = {
         "ynab_token": ynab_token,
         "ynab_budget_id": ynab_budget_id,
         "ynab_account_id": ynab_account_id,
         "gocardless_secret_id": gocardless_secret_id,
         "gocardless_secret_key": gocardless_secret_key,
         "gocardless_account_id": gocardless_account_id,
-    }.items():
-        if not non_optional:
-            print(f"`{name}` parameter should be specified.")
-            error = True
+    }
 
-    if error:
-        return
+    # FIXME: This is bad, we should have default values of None and default factory from appeal
+    config = YnabSyncConfig(
+        **{key: value for key, value in config_mapping.items() if value}  # type: ignore
+    )
 
     gocardless_bank_account_data = get_gocardless_transactions(
-        secret_key=gocardless_secret_key,
-        secret_id=gocardless_secret_id,
-        account_id=UUID(gocardless_account_id),
+        secret_key=config.gocardless_secret_key,
+        secret_id=config.gocardless_secret_id,
+        account_id=config.gocardless_account_id,
         date_from=date.fromisoformat(date_from) if date_from else None,
         date_to=date.fromisoformat(date_to) if date_to else None,
     )
 
     ynab_transactions = prepare_ynab_transactions(
         gocardless_bank_data=gocardless_bank_account_data,
-        ynab_account_id=UUID(ynab_account_id),
+        ynab_account_id=config.ynab_account_id,
     )
 
     upload_to_ynab(
-        transactions=ynab_transactions, token=ynab_token, budget_id=UUID(ynab_budget_id)
+        transactions=ynab_transactions,
+        token=config.ynab_token,
+        budget_id=config.ynab_budget_id,
     )
 
 
@@ -107,9 +100,12 @@ def ynab():
 @app.command("ynab").command()
 def budgets(
     *,
-    ynab_token: str = os.getenv(ENV_YNAB_TOKEN),
+    ynab_token: str = "",
 ):
-    budgets = get_ynab_budgets(token=ynab_token)
+    credentials = (
+        YnabCredentials(ynab_token=ynab_token) if ynab_token else YnabCredentials()
+    )
+    budgets = get_ynab_budgets(token=credentials.ynab_token)
 
     table = tabulate(
         [(budget.id, budget.name, budget.currency) for budget in budgets],
@@ -121,11 +117,17 @@ def budgets(
 
 @app.command("ynab").command()
 def accounts(
+    ynab_budget_id: str,
     *,
-    ynab_token: str = os.getenv(ENV_YNAB_TOKEN),
-    ynab_budget_id: str = os.getenv(ENV_YNAB_BUDGET_ID),
+    ynab_token: str = "",
 ):
-    budget = get_ynab_budget(token=ynab_token, budget_id=UUID(ynab_budget_id))
+    credentials = (
+        YnabCredentials(ynab_token=ynab_token) if ynab_token else YnabCredentials()
+    )
+    budget = get_ynab_budget(
+        token=credentials.ynab_token,
+        budget_id=UUID(ynab_budget_id),
+    )
 
     table = tabulate(
         [
@@ -154,12 +156,16 @@ def gocardless():
 def banks(
     country: str,
     *,
-    gocardless_secret_id: str = os.getenv(ENV_GOCARDLESS_SECRET_ID, ""),
-    gocardless_secret_key: str = os.getenv(ENV_GOCARDLESS_SECRET_KEY, ""),
+    gocardless_secret_id: str = "",
+    gocardless_secret_key: str = "",
 ):
+    credentials = GocardlessCredentials(
+        gocardless_secret_id=gocardless_secret_id,
+        gocardless_secret_key=gocardless_secret_key,
+    )
     banks = get_gocardless_banks(
-        secret_id=gocardless_secret_id,
-        secret_key=gocardless_secret_key,
+        secret_id=credentials.gocardless_secret_id,
+        secret_key=credentials.gocardless_secret_key,
         country=country,
     )
     table = tabulate([(bank.id, bank.name) for bank in banks], headers=["ID", "NAME"])
@@ -171,12 +177,17 @@ def banks(
 def generate_bank_auth_link(
     institution_id: str,
     *,
-    gocardless_secret_id: str = os.getenv(ENV_GOCARDLESS_SECRET_ID, ""),
-    gocardless_secret_key: str = os.getenv(ENV_GOCARDLESS_SECRET_KEY, ""),
+    gocardless_secret_id: str = "",
+    gocardless_secret_key: str = "",
 ):
+    credentials = GocardlessCredentials(
+        gocardless_secret_id=gocardless_secret_id,
+        gocardless_secret_key=gocardless_secret_key,
+    )
+
     requisition = create_gocardless_requisition(
-        secret_id=gocardless_secret_id,
-        secret_key=gocardless_secret_key,
+        secret_id=credentials.gocardless_secret_id,
+        secret_key=credentials.gocardless_secret_key,
         redirect="",
         institution_id=institution_id,
     )
@@ -195,12 +206,16 @@ def generate_bank_auth_link(
 def list_requisition_accounts(
     requisition_id: str,
     *,
-    gocardless_secret_id: str = os.getenv(ENV_GOCARDLESS_SECRET_ID, ""),
-    gocardless_secret_key: str = os.getenv(ENV_GOCARDLESS_SECRET_KEY, ""),
+    gocardless_secret_id: str = "",
+    gocardless_secret_key: str = "",
 ):
+    credentials = GocardlessCredentials(
+        gocardless_secret_id=gocardless_secret_id,
+        gocardless_secret_key=gocardless_secret_key,
+    )
     requisition = get_gocardless_requisition(
-        secret_id=gocardless_secret_id,
-        secret_key=gocardless_secret_key,
+        secret_id=credentials.gocardless_secret_id,
+        secret_key=credentials.gocardless_secret_key,
         requisition_id=requisition_id,
     )
 
