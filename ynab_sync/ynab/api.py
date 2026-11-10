@@ -2,7 +2,8 @@ import json
 import uuid
 
 import requests
-from ynab_sync.ynab.models import YNABAccount, YNABBudget
+from ynab_sync.ynab.models import YNABBudget
+import datetime
 
 BASE_URL = "https://api.ynab.com/v1"
 
@@ -16,7 +17,9 @@ class YnabAPI:
     def _requests_session(self) -> requests.Session:
         if self._request_session is None:
             self._request_session = requests.Session()
-            self._request_session.headers.update({"Authorization": f"Bearer {self._access_token}"})
+            self._request_session.headers.update(
+                {"Authorization": f"Bearer {self._access_token}"}
+            )
 
         return self._request_session
 
@@ -52,3 +55,34 @@ class YnabAPI:
         response = self._requests_session.get(f"{BASE_URL}/budgets")
         response.raise_for_status()
         return [YNABBudget(**budget) for budget in response.json()["data"]["budgets"]]
+
+    def get_transactions_by_category(
+        self,
+        budget_id: uuid.UUID,
+        category_id: uuid.UUID,
+        since_date: datetime.date,
+    ):
+        url = f"{BASE_URL}/budgets/{budget_id}/categories/{category_id}/transactions/"
+        if since_date:
+            url += f"?since_date={since_date.isoformat()}"
+
+        response = self._requests_session.get(url)
+        response.raise_for_status()
+
+        return response.json()
+
+    def update_transaction_payee_id(
+        self,
+        budget_id: uuid.UUID,
+        transaction_id: uuid.UUID,
+        payee_id: uuid.UUID,
+    ):
+        url = f"{BASE_URL}/budgets/{budget_id}/transactions/{transaction_id}/"
+
+        response = self._requests_session.put(
+            url,
+            json={"transaction": {"payee_id": str(payee_id)}},
+        )
+        response.raise_for_status()
+
+        return response.json()

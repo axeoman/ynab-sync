@@ -1,7 +1,9 @@
 import uuid
+import json
 from datetime import date
 
 import requests
+import logging
 
 from .models import GoCardlessBankAccountData, GoCardlessInstitution, GoCardlessRequisition
 
@@ -14,6 +16,7 @@ class GoCardLessAPI:
         self._secret_key = secret_key
         self._access_token: str | None = None
         self._request_session: requests.Session | None = None
+        self._log = logging.getLogger(self.__class__.__name__)
 
     def _get_token(
         self,
@@ -64,6 +67,7 @@ class GoCardLessAPI:
         )
         response.raise_for_status()
         json_data = response.json()
+        self._log.debug("returned transactions: %s", json.dumps(json_data))
         return GoCardlessBankAccountData(**json_data)
 
     def get_banks(self, country: str) -> list[GoCardlessInstitution]:
