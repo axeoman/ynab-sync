@@ -1,2 +1,7 @@
 *.pyc
 venv
+*.env
+!*.example.env
+build/
+*.egg-info/
+__pycache__/
